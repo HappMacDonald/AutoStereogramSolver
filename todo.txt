@@ -1,0 +1,60 @@
+== currently working on:
+* refactor
+
+== Left to do:
+* Prevent blinking on transparent images (like my magiceye header)
+
+* Support wrap in the upper visual
+
+* Support wrap in modular parallax (moving less than zero is identical to moving to right side, moving past right side wraps back to zero)
+
+* Add comments clarifying that I'm not bothering to support wrap in manual grayscale calculation, since that has no upside and would cost cycles.
+** Possibly add code to at least *detect* left/right out of bounds, and perhaps skip index variable to next valid coordinate?
+*** That ought to save as much time as it eats, and might make left/right edges of grayscale product cleaner.
+
+* Research support for paste-into-document?
+** For local files
+** For urls (#A)
+*** In this circumstance, we can do away with the text input and simply have a span displaying current url
+
+* #B A button to refresh current image
+** 1: It clears the sweep settings
+** 2: It clears the gray canvas
+** 3: Iff we have a "default" offset, then it goes there
+** 4: It tries to reload the file
+*** In case local via input, simple call to "HandleFileUpload" ought to refresh that
+*** In case local via dragdrop or copy/paste, it might be important to try to coerse File Input object's .file or whatever attribute for future abuse
+*** In case remote, refresh remote URL.
+
+* Clean up noise?
+** Convolution?
+** Blur?
+** Detect and eliminate repeated-pixel noise?
+*** Shows up for ascii stereograms, mostly due to flat colors in background.
+*** Also some sharp hidden images wind up with repeated pixels in the distortion that cast unwanted lateral shadows.
+
+* Any way to better handle random-dot stereograms? (currently this app sucks at those)
+
+* Automatically find sweep begin and end
+
+* Figure out a better CORS solution than abusing anyone else's proxy
+** To clarify, when proxy is left blank many remote urls cannot presently be loaded.
+
+* Some kind of UI to toggle between diff-view and original stereogram?
+
+* Option to overlay hues from original stereogram onto grayscale depthmap, or something like that?
+
+* Fix layout so that:
+** Probably worth locking page-wide horizontal scroll
+** Content is centered both vertically and horizontally
+** URL bar and file picker are on same line
+** That line is same length as parallax, sweep begin, sweep end controls
+** Sweep begin/end control buttons more clearly correlate to their measurement values
+** both cavases are downscaled (preserving aspect ratio) not one centimeter (~75px) more than they need to in order to fit on the screen in the intended layout
+
+* Make sure multiple sweep attempts on the same image each reset the grayscale canvas from prior attempt
+
+* If data: urls are going to get summarized to anything (currently to lengths) then I'd like to store that summary->content mapping into a hash, so that summaries can be revisited.
+** This entire feature will probably be obscolesced by #A and #B
+** EG, paste in a different url and then paste in the "data:XXX" url in the same session it will at least try to look up a mapping for that data: url and use those contents if found.
+** In this circumstance, we should NOT use that mapping in PreDraw to test for a match. For performance reasons we should still use a separate, faster, more native technique such as comparing hash (eg, comparing length)

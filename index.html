@@ -30,6 +30,7 @@ img.preload
 .inputRow { position: relative; }
 .position {display: inline-block; width: 100px; text-align: center; }
 input { width: 60%; }
+#fileUpload { display: none; }
 </style>
 <script>
 
@@ -110,11 +111,29 @@ function PreDraw()
   if(window.sodoff) { return; }
   // return;
   // clearTimeout(redrawTimer);
+  URL.revokeObjectURL(picObj.src);
+  let matching;
+  if(urlObj.value.startsWith("data:"))
+  { match = ( parseInt(urlObj.value.substr(5)) == picObj.src.length );
+// console.log
+// ( "We DO have a data: src .. now "
+// + parseInt(urlObj.value.substr(5))
+// + "=="
+// + picObj.src.length
+// + " is "
+// + ( match ? "true" : "false" )
+// );
+  } else if(picObj.src.startsWith("blob:"))
+  { match = ( urlObj.value == picObj.src );
+  }
+  else
+  { match = ( proxyUrl(urlObj.value) == picObj.src );
+  }
   if
   ( outImage.width != picObj.naturalWidth
   ||outImage.height != picObj.naturalHeight
   ||outImageData == null
-  ||proxyUrl(urlObj.value) != picObj.src
+  ||!match
   )
   { 
     console.log
@@ -139,8 +158,20 @@ function PreDraw()
     picObj.crossOrigin = "Anonymous";
     window.srcImageData = null;
 
-    picObj.src = proxyUrl(urlObj.value);
-console.log("Trying to load "+ picObj.src);
+    if(!urlObj.value.startsWith("data:"))
+    { picObj.src =
+        ( urlObj.value.startsWith("blob:")
+        ? urlObj.value
+        : proxyUrl(urlObj.value)
+        );
+    }
+
+if(picObj.src.startsWith("data:"))
+{ console.log("Trying to load data url of length "+ picObj.src.length);
+}
+else
+{ console.log("Trying to load "+ picObj.src);
+}
     picObj.onload = function() { PreDraw(); };
 
 //    redrawTimer = setTimeout(PreDraw, REDRAW_TIMEOUT);
@@ -272,33 +303,80 @@ function init()
   window.urlObj = document.getElementById('url');
   window.ctxOutImage = outImage.getContext("2d");
 
-  document.addEventListener
-  ( 'keydown'
-  , (event) =>
-    { const keyName = event.key;
-      if(document.activeElement == urlObj) { return; }
-
-      switch(keyName)
-      { case "ArrowRight":
-          Level(picDetails.x - 1);
-          break;
-
-        case "ArrowLeft":
-          Level(picDetails.x + 1);
-          break;
-
-        case "0":
-          if(event.ctrlKey) { return; }
-          Level(0);
-          break;
-
-      }
-
-    }
-  );
-
+  document.addEventListener('keydown', KeyDown, false);
+  document.addEventListener("dragenter", DragEnter, false);
+  document.addEventListener("dragexit", DragExit, false);
+  document.addEventListener("dragover", DragOver, false);
+  document.addEventListener("drop", Drop, false);
+  window.fileUploadObj = document.getElementById('fileUpload');
+  fileUploadObj.addEventListener("change", HandleFileUpload, false);
 
   Level(-100);
+}
+
+function KeyDown(event)
+{ const keyName = event.key;
+  if(document.activeElement == urlObj) { return; }
+
+  switch(keyName)
+  { case "ArrowRight":
+      Level(picDetails.x - 1);
+      break;
+
+    case "ArrowLeft":
+      Level(picDetails.x + 1);
+      break;
+
+    case "0":
+      if(event.ctrlKey) { return; }
+      Level(0);
+      break;
+
+  }
+}
+
+function DragEnter(event) {
+  event.stopPropagation();
+  event.preventDefault();
+}
+function DragExit(event) {
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function DragOver(event) {
+  event.stopPropagation();
+  event.preventDefault();
+}
+
+function Drop(event) {
+  event.stopPropagation();
+  event.preventDefault();
+
+  HandleFileUpload(event.dataTransfer.files);
+}
+
+function HandleFileUpload(files)
+{ let file;
+  if(files[0] == null)
+  { file = this.files[0];
+  }
+  else
+  { file = files[0];
+  }
+  // console.log(JSON.stringify([this.files, files, file]));
+  if(file == null) { return; } // Silently fail when upload appears malformed
+  if(!file.type.startsWith('image/'))
+  { alert("File "+ file.name +" does not appear to be an image.");
+    return;
+  }
+
+  // urlObj.value = picObj.src = URL.createObjectURL(file);
+  const reader = new FileReader();
+  reader.onload = (function(aImg) { return function(e) { aImg.src = e.target.result; console.log("Data: "+ (urlObj.value = "data:"+ aImg.src.length) + ":"+ aImg.src.startsWith("data:"))}; })(picObj);
+  reader.readAsDataURL(file);
+
+  PreDraw();
 }
 
 function setSweepStart(val)
@@ -307,7 +385,7 @@ function setSweepStart(val)
   window.SWEEP_START = val;
   document.getElementById('sweepFrom').innerText = SWEEP_START;
   if(SWEEP_START!=null && SWEEP_END !=null)
-  { window.sweep = SWEEP_START;
+  { window.sweep = SWEEP_START-1;
     Level(sweep);
   }
 }
@@ -318,7 +396,7 @@ function setSweepEnd(val)
   window.SWEEP_END = val;
   document.getElementById('sweepTo').innerText = SWEEP_END;
   if(SWEEP_START!=null && SWEEP_END !=null)
-  { window.sweep = SWEEP_START;
+  { window.sweep = SWEEP_START-1;
     Level(sweep);
   }
 }
@@ -331,6 +409,19 @@ function clearSweep()
   document.getElementById('sweepFrom').innerText
   = document.getElementById('sweepTo').innerText
   = '';
+}
+
+function crc32(r)
+{ for(var a,o=[],c=0;c<256;c++)
+  { a=c;
+    for(var f=0;f<8;f++)
+      a=1&a?3988292384^a>>>1:a>>>1;
+    o[c]=a
+  }
+  for(var n=-1,t=0;t<r.length;t++)
+    n=n>>>8^o[255&(n^r.charCodeAt(t))];
+
+  return(-1^n)>>>0
 }
 
 </script>
@@ -349,6 +440,8 @@ function clearSweep()
     |
     <button onClick='setSweepEnd()'>Sweep To Here</button>
     <span id='sweepTo' class='position'></span>
+    <input type='file' id='fileUpload' />
+    <button id='uploadButton' onClick='fileUploadObj.click()'>Upload a File</button>
   </div>
   <canvas id="outImage" width="100" height="100"></canvas><br>
 </div>
