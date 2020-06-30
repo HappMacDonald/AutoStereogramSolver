@@ -1,189 +1,356 @@
 <!doctype html>
 <html>
 <head>
-<title>Imagemacro Generator for subreddit /r/TotallyLooksLike</title>
+<title>AutoStereogram Solver</title>
 <meta charset="UTF-8">
 <style>
 body, html
-{
-  width: 100%; height: 100%; position: relative; margin: 0; padding: 0; box-sizing: border-box;
-  display: flex; align-items: center; justify-content: center;
-  font-family: arial; font-size: 12pt; 
+{ width: 100%
+; height: 100%
+; position: relative
+; margin: 0
+; padding: 0
+; box-sizing: border-box
+; display: flex
+; align-items: center
+; justify-content: center
+; font-family: arial
+; font-size: 12pt
 }
 page { text-align: center; }
-#product { width: 603px; height: 482px; border 1px solid red; position: relative; }
-img.preload { position: absolute; top: -9999px; left: -9999px; }
-.inputRow   { position: relative; }
-.inputLabel { text-align: center; position: absolute; width: 183px; margin: 0 210px; }
-input { width: 200px; }
-#caption2 { float: right; text-align: right; }
-#url2 { float: right; text-align: right; }
+#diffImage, #outImage
+{ margin: 0 auto
+; max-width: 55%
+; max-height: 40%
+}
+img.preload
+{ position: absolute
+; visibility: hidden
+}
+.inputRow { position: relative; }
+.position {display: inline-block; width: 100px; text-align: center; }
+input { width: 60%; }
 </style>
 <script>
 
-window.PRODUCT_WIDTH = 603;
-window.PRODUCT_HEIGHT = 482;
-window.PRODUCT_DIVIDER = PRODUCT_WIDTH/2.0;
-window.PRODUCT_BACKGROUND = 'white';
-window.PRODUCT_BORDER_STYLE = 'black';
-
-window.CAPTION_BOX_SIZE = 30;
-window.CAPTION_BOX_COLOR = 'rgba(255, 255, 255, 0.66)';
-window.CAPTION_FONT_STYLE = 'bold 12pt Arial';
-window.CAPTION_FONT_COLOR = 'black';
-window.CAPTION_BASELINE = 472;
-window.CAPTION_INSET = 10;
-
 window.REDRAW_TIMEOUT = 333; // in milliseconds
+window.BLACK_CUTOFF = 15;
+window.SLOPE_CUTOFF = 15;
 window.redrawTimer = null;
+window.outImageData = null;
+window.darkest = [];
 
-window.PIC_WIDTH = (PRODUCT_WIDTH-3)/2;
-window.PIC_HEIGHT = PRODUCT_HEIGHT-2;
-window.PIC_SCALE_MIN = 0.01;
-window.PIC_SCALE_MAX = 20;
-window.picDragging = 0;
+window.picDragging = false;
 window.picDragAnchor = {};
-window.picDetails = {
-  1: {"x": 0, "y": 0, "scale": 1},
-  2: {"x": -50, "y": 0, "scale": 1},
+window.picDetails =
+{ "x": 0
+, "y": 0
 };
 
 
 CanvasRenderingContext2D.prototype.fillTextCenterX = function(text, x, y)
-{
-  this.fillText(text, x - (this.measureText(text).width/2), y);
+{ this.fillText(text, x - (this.measureText(text).width/2), y);
 };
 
 CanvasRenderingContext2D.prototype.fillTextRight = function(text, x, y)
-{
-  this.fillText(text, x - (this.measureText(text).width), y);
+{ this.fillText(text, x - (this.measureText(text).width), y);
 };
 
-function PreparePic(ctx, which, url)
-{
-  var picObj = document.getElementById('pic'+ which);
-  if(url != picObj.src)
-  {
-    picObj.src = url;
-    picObj.onload = function() { PreDraw(); };
-  } else {
-    DrawPic(ctx, which);
+function DrawPic(ctx, shifted)
+{ //let picObj = document.getElementById('pic1');
+  let sourceWidth  = diffImage.width;
+  let sourceHeight = diffImage.height;
+
+  let sourceX = 0;  
+  let sourceY = 0;
+
+  if(shifted)
+  { sourceX = picObj.naturalWidth/2.0  + (diffImage.width/-2.0  + picDetails.x);
+    sourceY = picObj.naturalHeight/2.0 + (diffImage.height/-2.0 + picDetails.y);
   }
-}
 
-function DrawPic(ctx, which)
-{
-  var picObj = document.getElementById('pic'+ which);
-  var sourceWidth  = PIC_WIDTH  / picDetails[which].scale;
-  var sourceHeight = PIC_HEIGHT / picDetails[which].scale;
+  let destX = 0;
+  let destY = 0;
 
-  var sourceX      = picObj.naturalWidth/2.0  + (PIC_WIDTH/-2.0  + picDetails[which].x)/picDetails[which].scale;
-  var sourceY      = picObj.naturalHeight/2.0 + (PIC_HEIGHT/-2.0 + picDetails[which].y)/picDetails[which].scale;
-
-  var destX = which + PIC_WIDTH*(which-1);
-  var destY = 1;
-
-  ctx.drawImage(picObj, sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, PIC_WIDTH, PIC_HEIGHT);
+  ctx.drawImage(picObj, sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, diffImage.width, diffImage.height);
 }
 
 function StartDrag(event)
-{
-  var which = (event.clientX - product.getBoundingClientRect().left < PRODUCT_DIVIDER)?1:2;
-  picDragAnchor = { "destX": event.screenX, "destY": event.screenY, "sourceX": picDetails[which].x, "sourceY": picDetails[which].y };
-  
-  picDragging = which;
+{ picDragAnchor = { "destX": event.screenX, "destY": event.screenY, "sourceX": picDetails.x, "sourceY": picDetails.y };
+  picDragging = true;
 }
 
 function StopDrag(event)
-{
-  picDragging = 0;
+{ picDragging = false;
 }
 
 function Drag(event)
-{
-  if(picDragging<1) { return; } // This indicates that no drag operation is active
-  picDetails[picDragging].x = picDragAnchor.sourceX + picDragAnchor.destX - event.screenX;
-  picDetails[picDragging].y = picDragAnchor.sourceY + picDragAnchor.destY - event.screenY;
-  PreDraw();
+{ if(!picDragging) { return; }
+  Level(picDragAnchor.sourceX + picDragAnchor.destX - event.screenX);
+//  picDetails.y = 0; //picDragAnchor.sourceY + picDragAnchor.destY - event.screenY;
 }
 
-function ClampScale(which)
-{
-  if(picDetails[which].scale < PIC_SCALE_MIN) { picDetails[which].scale = PIC_SCALE_MIN; }
-  if(picDetails[which].scale > PIC_SCALE_MAX) { picDetails[which].scale = PIC_SCALE_MAX; }
+function Level(parallax)
+{ picDetails.x = parallax;
+  positionSpan.innerText = -parallax;
+  // clearTimeout(redrawTimer);
+  cancelAnimationFrame(redrawTimer);
+    redrawTimer = requestAnimationFrame(PreDraw);
+  // redrawTimer = setTimeout(PreDraw, REDRAW_TIMEOUT);
+// PreDraw();
 }
 
-function WheelZoom(event)
-{
-  var which = (event.clientX - product.getBoundingClientRect().left < PRODUCT_DIVIDER)?1:2;
-  picDetails[which].scale *= (1 + event.deltaY/1000.0);
-  ClampScale(which);
-  PreDraw();
+function proxyUrl(url)
+{ return('https://cors-anywhere.herokuapp.com/' + url);
 }
 
 function PreDraw()
-{
+{ 
   cancelAnimationFrame(redrawTimer);
-  redrawTimer = requestAnimationFrame(ReDraw);
+  if(window.sodoff) { return; }
+  // return;
+  // clearTimeout(redrawTimer);
+  if
+  ( outImage.width != picObj.naturalWidth
+  ||outImage.height != picObj.naturalHeight
+  ||outImageData == null
+  ||proxyUrl(urlObj.value) != picObj.src
+  )
+  { 
+    console.log
+    ( JSON.stringify
+      ( [ "A"
+        , outImage.width
+        , picObj.naturalWidth
+        , outImage.height
+        , picObj.naturalHeight
+        ]
+      )
+    );
+    
+    clearSweep();
+    diffImage.width = outImage.width = picObj.naturalWidth;
+    diffImage.height = outImage.height = picObj.naturalHeight;
+    if(outImage.width * outImage.height > 1)
+    { window.outImageData = new ImageData(outImage.width, outImage.height);
+      outImageData.data.fill(255);
+      window.darkest = new Array(outImage.width * outImage.height).fill(255);
+    }
+    picObj.crossOrigin = "Anonymous";
+    window.srcImageData = null;
+
+    picObj.src = proxyUrl(urlObj.value);
+console.log("Trying to load "+ picObj.src);
+    picObj.onload = function() { PreDraw(); };
+
+//    redrawTimer = setTimeout(PreDraw, REDRAW_TIMEOUT);
+  }
+  else
+  { ReDraw();
+// console.log("drawing");
+  //  redrawTimer = setTimeout(PreDraw, REDRAW_TIMEOUT);
+    redrawTimer = requestAnimationFrame(PreDraw);
+  }
 }
 
 function ReDraw()
+{ 
+// console.log(JSON.stringify(["B", outImageData == null, diffImage.width == 0]))
+  if(outImageData == null || diffImage.width == 0) { return; }
+
+  let ctxDiffImage = diffImage.getContext("2d");
+
+  ctxDiffImage.beginPath();
+  ctxDiffImage.rect(0, 0, diffImage.width, diffImage.height);
+  ctxDiffImage.fillStyle = "white";
+  ctxDiffImage.fill();
+  // ctxDiffImage.strokeStyle = PRODUCT_BORDER_STYLE;
+  // ctxDiffImage.stroke();
+  
+  ctxDiffImage.globalCompositeOperation = 'source-over';
+  DrawPic(ctxDiffImage, false);
+  if(srcImageData == null)
+  { window.srcImageData = ctxDiffImage.getImageData(0, 0, diffImage.width, diffImage.height);
+  }
+  ctxDiffImage.globalCompositeOperation = 'difference';
+  DrawPic(ctxDiffImage, true);
+
+// ctxOutImage.beginPath();
+// ctxOutImage.rect(10, 20, 30, 40);
+// ctxOutImage.fillStyle = "red";
+// ctxOutImage.strokeStyle = "green";
+// ctxOutImage.fill();
+// ctxOutImage.stroke();
+
+  let index = outImageData.data.length;
+  let minMax = [[256,-1],[256,-1],[256,-1],[256,-1]];
+  
+  if
+    ( SWEEP_START !== null
+    &&SWEEP_END   !== null
+    &&-picDetails.x >= SWEEP_START
+    &&-picDetails.x <= SWEEP_END
+    )
+  {
+    while((index -= 4) >= 0)
+    { let offer = 
+        Offer(index, picDetails.x);
+
+      let color =
+        Math.round
+        ( ( 0
+          - picDetails.x
+          - SWEEP_START
+          )
+        / ( SWEEP_END - SWEEP_START )
+        * 255
+        );
+if(index==0)
 {
-  var ctx = product.getContext("2d");
+if(-picDetails.x == SWEEP_START+1)
+{ console.log("Color at SWEEP_START="+ SWEEP_START +" is Color="+ color);
+}
+else
+if(-picDetails.x == SWEEP_END-1)
+{ console.log("Color at SWEEP_END="+ SWEEP_END +" is Color="+ color);
+}
+}
 
-  ctx.beginPath();
-  ctx.rect(0.5, 0.5, PRODUCT_WIDTH-1, PRODUCT_HEIGHT-1); // Outside Border
-  ctx.rect(PRODUCT_DIVIDER, 0.5, 0, PRODUCT_HEIGHT-1); // Divider
-  ctx.fillStyle = PRODUCT_BACKGROUND;
-  ctx.fill();
-  ctx.strokeStyle = PRODUCT_BORDER_STYLE;
-  ctx.stroke();
+      if
+      ( offer < darkest[Math.floor(index/4)]
+      )
+      { 
+        outImageData.data[index] =
+          outImageData.data[index+1] =
+          outImageData.data[index+2] =
+          color
+        //unconditional 100% opacity
+        outImageData.data[index+3] =
+          255;
+        darkest[Math.floor(index/4)] = offer;
+      }
+      // else no change to this pixel
+    }
+    ctxOutImage.putImageData(outImageData, 0, 0);
+  }
 
-  PreparePic(ctx, 1, document.getElementById('url1').value);
-  PreparePic(ctx, 2, document.getElementById('url2').value);
+  if(window.sweep>0 && window.sweep<SWEEP_END)
+  { Level(-(++window.sweep));
+  }
+  else
+  { if(window.sweep !== null)
+    {
+      console.log("Sweep Complete");
+    }
+    window.sweep = null;
+  }
+}
 
-  ctx.beginPath();
-  ctx.rect(0.5, PRODUCT_HEIGHT-CAPTION_BOX_SIZE-0.5, PRODUCT_WIDTH-1, CAPTION_BOX_SIZE); // Caption Area
-  ctx.fillStyle = CAPTION_BOX_COLOR;
-  ctx.strokeStyle = PRODUCT_BORDER_STYLE;
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.font = CAPTION_FONT_STYLE;
-  ctx.fillStyle = CAPTION_FONT_COLOR;
-  ctx.fillTextCenterX("/r/TotallyLooksLike", PRODUCT_DIVIDER, CAPTION_BASELINE);
-//  ctx.fillTextCenterX((new Date()).getMilliseconds(), 20, 20);
-  ctx.fillText(document.getElementById('caption1').value, CAPTION_INSET, CAPTION_BASELINE);
-  ctx.fillTextRight(document.getElementById('caption2').value, PRODUCT_WIDTH - CAPTION_INSET, CAPTION_BASELINE);
+function Offer(index, offset)
+{ let left  = index - 4 * Math.ceil(offset/2);
+  let right = index + 4 * Math.floor(offset/2);
+  let ret =
+    Math.max
+    ( Math.abs(srcImageData.data[left] - srcImageData.data[right])
+    , Math.abs(srcImageData.data[left+1] - srcImageData.data[right+1])
+    , Math.abs(srcImageData.data[left+2] - srcImageData.data[right+2])
+    );
+      
+  return( ret );
 }
 
 function init()
 {
-  window.product = document.getElementById("product");
+  window.diffImage = document.getElementById("diffImage");
+  window.outImage = document.getElementById("outImage");
+  window.positionSpan = document.getElementById("position");
   window.onmousemove = window.Drag;
-  product.onmousedown = window.StartDrag;
+  diffImage.onmousedown = window.StartDrag;
   window.onmouseup = window.StopDrag;
-  product.onwheel = window.WheelZoom;
-  ReDraw();
+//  diffImage.onwheel = window.WheelZoom;
+  window.picObj = document.getElementById('pic1');
+  window.urlObj = document.getElementById('url');
+  window.ctxOutImage = outImage.getContext("2d");
+
+  document.addEventListener
+  ( 'keydown'
+  , (event) =>
+    { const keyName = event.key;
+      if(document.activeElement == urlObj) { return; }
+
+      switch(keyName)
+      { case "ArrowRight":
+          Level(picDetails.x - 1);
+          break;
+
+        case "ArrowLeft":
+          Level(picDetails.x + 1);
+          break;
+
+        case "0":
+          Level(0);
+          break;
+
+      }
+
+    }
+  );
+
+
+  Level(-100);
+}
+
+function setSweepStart(val)
+{ if(val==null) { val = -picDetails.x; }
+  if(val<2) { return; }
+  window.SWEEP_START = val;
+  document.getElementById('sweepFrom').innerText = SWEEP_START;
+  if(SWEEP_START!=null && SWEEP_END !=null)
+  { window.sweep = SWEEP_START;
+    Level(sweep);
+  }
+}
+
+function setSweepEnd(val)
+{ if(val==null) { val = -picDetails.x; }
+  if(val<2) { return; }
+  window.SWEEP_END = val;
+  document.getElementById('sweepTo').innerText = SWEEP_END;
+  if(SWEEP_START!=null && SWEEP_END !=null)
+  { window.sweep = SWEEP_START;
+    Level(sweep);
+  }
+}
+
+function clearSweep()
+{ window.SWEEP_START
+  = window.SWEEP_END
+  = window.sweep
+  = null;
+  document.getElementById('sweepFrom').innerText
+  = document.getElementById('sweepTo').innerText
+  = '';
 }
 
 </script>
 </head>
 <body onLoad='init()'>
 <div id='page'>
-  <canvas id="product" width="603" height="482"></canvas><br>
+  <canvas id="diffImage" width="100" height="100"></canvas><br>
   <div class='inputRow'>
-    <div class='inputLabel'>&lt;- Captions -&gt;</div>
-    <input type='text' id='caption1' oninput='PreDraw()' value='Darth Vader'>
-    <input type='text' id='caption2' oninput='PreDraw()' value='Bane Cosplayer'>
+    <input type='text' id='url' oninput='PreDraw()' value='https://i.imgur.com/4mBZLve.jpg'>
   </div>
   <div class='inputRow'>
-    <div class='inputLabel'>&lt;- URLs -&gt;</div>
-    <input type='text' id='url1' oninput='PreDraw()' value='http://www.html5canvastutorials.com/demos/assets/darth-vader.jpg'>
-    <input type='text' id='url2' oninput='PreDraw()' value='http://2.bp.blogspot.com/-CYdB6HpOE4Y/Tkg5FvaSlBI/AAAAAAAAEPA/Ou12J0cdJIg/s1600/baned.jpg'>
+    <span id='position' class='position'></span>
+    |
+    <button onClick='setSweepStart()'>Sweep From Here</button>
+    <span id='sweepFrom' class='position'></span>
+    |
+    <button onClick='setSweepEnd()'>Sweep To Here</button>
+    <span id='sweepTo' class='position'></span>
   </div>
+  <canvas id="outImage" width="100" height="100"></canvas><br>
 </div>
 <img class='preload' id='pic1'></img>
-<img class='preload' id='pic2'></img>
 </body>
 </html>
